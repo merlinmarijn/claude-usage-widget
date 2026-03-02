@@ -1,9 +1,10 @@
 // Application state
-let credentials = null;
+let accounts = [];
+let activeAccountId = null;
+let usageDataByAccount = {}; // Map of account ID to usage data
 let updateInterval = null;
 let countdownInterval = null;
 let updateTimerInterval = null;
-let latestUsageData = null;
 let refreshIntervalMs = 5 * 60 * 1000; // Default 5 minutes
 let showUpdateTimer = false;
 let nextUpdateTime = null;
@@ -19,6 +20,9 @@ const elements = {
     refreshBtn: document.getElementById('refreshBtn'),
     minimizeBtn: document.getElementById('minimizeBtn'),
     closeBtn: document.getElementById('closeBtn'),
+
+    // Account tabs
+    accountTabsContainer: document.getElementById('accountTabsContainer'),
 
     sessionPercentage: document.getElementById('sessionPercentage'),
     sessionProgress: document.getElementById('sessionProgress'),
@@ -49,7 +53,11 @@ const elements = {
     // Update timer displays
     updateTimerNormal: document.getElementById('updateTimerNormal'),
     updateTimerText: document.getElementById('updateTimerText'),
-    updateTimerCompact: document.getElementById('updateTimerCompact')
+    updateTimerCompact: document.getElementById('updateTimerCompact'),
+
+    // Accounts section in settings
+    accountsList: document.getElementById('accountsList'),
+    addAccountBtn: document.getElementById('addAccountBtn')
 };
 
 // Initialize
@@ -70,14 +78,206 @@ async function init() {
     elements.showUpdateTimerToggle.checked = showUpdateTimer;
     applyUpdateTimerVisibility();
 
-    credentials = await window.electronAPI.getCredentials();
+    // Load accounts
+    accounts = await window.electronAPI.getAccounts();
+    activeAccountId = await window.electronAPI.getActiveAccountId();
 
-    if (credentials.sessionKey && credentials.organizationId) {
+    // If no active account but we have accounts, set the first one as active
+    if (!activeAccountId && accounts.length > 0) {
+        activeAccountId = accounts[0].id;
+        await window.electronAPI.setActiveAccountId(activeAccountId);
+    }
+
+    if (accounts.length > 0 && activeAccountId) {
+        renderAccountTabs();
         showMainContent();
         await fetchUsageData();
         startAutoUpdate();
     } else {
         showLoginRequired();
+    }
+}
+
+// Get active account
+function getActiveAccount() {
+    return accounts.find(a => a.id === activeAccountId) || accounts[0];
+}
+
+// Render account tabs
+function renderAccountTabs() {
+    if (!elements.accountTabsContainer) return;
+
+    let tabsHtml = '';
+
+    accounts.forEach(account => {
+        const isActive = account.id === activeAccountId;
+        tabsHtml += `
+            <button class="account-tab ${isActive ? 'active' : ''}"
+                    data-account-id="${account.id}"
+                    title="${account.label}">
+                ${account.label}
+            </button>
+        `;
+    });
+
+    // Add "+" button to add new account
+    tabsHtml += `
+        <button class="account-tab add-tab" id="addAccountTabBtn" title="Add Account">+</button>
+    `;
+
+    elements.accountTabsContainer.innerHTML = tabsHtml;
+
+    // Add event listeners to tabs
+    elements.accountTabsContainer.querySelectorAll('.account-tab:not(.add-tab)').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const accountId = tab.dataset.accountId;
+            switchAccount(accountId);
+        });
+    });
+
+    // Add event listener to add button
+    const addBtn = document.getElementById('addAccountTabBtn');
+    if (addBtn) {
+        addBtn.addEventListener('click', handleAddAccount);
+    }
+}
+
+// Switch active account
+async function switchAccount(accountId) {
+    if (accountId === activeAccountId) return;
+
+    activeAccountId = accountId;
+    await window.electronAPI.setActiveAccountId(accountId);
+
+    // Update tab UI
+    renderAccountTabs();
+
+    // Check if we have cached usage data for this account
+    const cachedData = usageDataByAccount[accountId];
+    if (cachedData) {
+        updateUI(cachedData);
+    } else {
+        // Fetch data for this account
+        await fetchUsageData();
+    }
+}
+
+// Render accounts list in settings
+function renderAccountsList() {
+    if (!elements.accountsList) return;
+
+    let listHtml = '';
+
+    accounts.forEach(account => {
+        listHtml += `
+            <div class="account-item" data-account-id="${account.id}">
+                <span class="account-label-display">${account.label}</span>
+                <input type="text" class="account-label-input" value="${account.label}" style="display: none;">
+                <div class="account-actions">
+                    <button class="account-edit-btn" title="Edit name">✏️</button>
+                    <button class="account-remove-btn" title="Remove account">🗑️</button>
+                </div>
+            </div>
+        `;
+    });
+
+    elements.accountsList.innerHTML = listHtml;
+
+    // Add event listeners
+    elements.accountsList.querySelectorAll('.account-item').forEach(item => {
+        const accountId = item.dataset.accountId;
+        const editBtn = item.querySelector('.account-edit-btn');
+        const removeBtn = item.querySelector('.account-remove-btn');
+        const labelDisplay = item.querySelector('.account-label-display');
+        const labelInput = item.querySelector('.account-label-input');
+
+        editBtn.addEventListener('click', () => {
+            // Toggle edit mode
+            const isEditing = labelInput.style.display !== 'none';
+            if (isEditing) {
+                // Save
+                handleSaveLabel(accountId, labelInput.value);
+                labelDisplay.textContent = labelInput.value;
+                labelDisplay.style.display = 'inline';
+                labelInput.style.display = 'none';
+                editBtn.textContent = '✏️';
+            } else {
+                // Enter edit mode
+                labelDisplay.style.display = 'none';
+                labelInput.style.display = 'inline';
+                labelInput.focus();
+                labelInput.select();
+                editBtn.textContent = '✓';
+            }
+        });
+
+        // Save on Enter key
+        labelInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleSaveLabel(accountId, labelInput.value);
+                labelDisplay.textContent = labelInput.value;
+                labelDisplay.style.display = 'inline';
+                labelInput.style.display = 'none';
+                editBtn.textContent = '✏️';
+            } else if (e.key === 'Escape') {
+                labelInput.value = labelDisplay.textContent;
+                labelDisplay.style.display = 'inline';
+                labelInput.style.display = 'none';
+                editBtn.textContent = '✏️';
+            }
+        });
+
+        removeBtn.addEventListener('click', () => {
+            handleRemoveAccount(accountId);
+        });
+    });
+}
+
+// Handle add account
+async function handleAddAccount() {
+    await window.electronAPI.addAccount();
+}
+
+// Handle save label
+async function handleSaveLabel(accountId, newLabel) {
+    await window.electronAPI.updateAccountLabel(accountId, newLabel);
+
+    // Update local state
+    const account = accounts.find(a => a.id === accountId);
+    if (account) {
+        account.label = newLabel;
+    }
+
+    // Update tabs
+    renderAccountTabs();
+}
+
+// Handle remove account
+async function handleRemoveAccount(accountId) {
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    const confirmed = confirm(`Remove "${account.label}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    const result = await window.electronAPI.removeAccount(accountId);
+
+    if (result.success) {
+        // Update local state
+        accounts = accounts.filter(a => a.id !== accountId);
+        delete usageDataByAccount[accountId];
+
+        if (accounts.length === 0) {
+            // No accounts left, show login
+            activeAccountId = null;
+            showLoginRequired();
+        } else if (result.newActiveId) {
+            // Switch to new active account
+            activeAccountId = result.newActiveId;
+            renderAccountTabs();
+            renderAccountsList();
+            await fetchUsageData();
+        }
     }
 }
 
@@ -94,6 +294,7 @@ function applyCompactMode(isCompact) {
 async function openSettings() {
     console.log('[Renderer] Opening settings...');
     await window.electronAPI.expandForSettings(true);
+    renderAccountsList();
     elements.settingsOverlay.style.display = 'flex';
 }
 
@@ -176,9 +377,11 @@ function setupEventListeners() {
 
     elements.logoutBtn.addEventListener('click', async () => {
         await window.electronAPI.deleteCredentials();
+        accounts = [];
+        activeAccountId = null;
+        usageDataByAccount = {};
         await closeSettings();
         showLoginRequired();
-        window.electronAPI.openLogin();
     });
 
     elements.coffeeBtn.addEventListener('click', () => {
@@ -222,12 +425,32 @@ function setupEventListeners() {
         window.electronAPI.closeWindow();
     });
 
-    // Listen for login success
-    window.electronAPI.onLoginSuccess(async (data) => {
-        console.log('Renderer received login-success event', data);
-        credentials = data;
-        await window.electronAPI.saveCredentials(data);
-        console.log('Credentials saved, showing main content');
+    // Add account button in settings
+    if (elements.addAccountBtn) {
+        elements.addAccountBtn.addEventListener('click', handleAddAccount);
+    }
+
+    // Listen for account login success
+    window.electronAPI.onAccountLoginSuccess(async (data) => {
+        console.log('Renderer received account-login-success event', data);
+
+        // Reload accounts from store
+        accounts = await window.electronAPI.getAccounts();
+
+        if (data.isNew && data.account) {
+            // New account was added, switch to it
+            activeAccountId = data.account.id;
+            await window.electronAPI.setActiveAccountId(activeAccountId);
+        } else if (data.account) {
+            // Existing account was refreshed
+            const index = accounts.findIndex(a => a.id === data.account.id);
+            if (index >= 0) {
+                accounts[index] = data.account;
+            }
+        }
+
+        renderAccountTabs();
+        renderAccountsList();
         showMainContent();
         await fetchUsageData();
         startAutoUpdate();
@@ -239,46 +462,48 @@ function setupEventListeners() {
     });
 
     // Listen for session expiration events (403 errors) - only used as fallback
-    window.electronAPI.onSessionExpired(() => {
-        console.log('Session expired event received');
-        credentials = { sessionKey: null, organizationId: null };
-        showLoginRequired();
+    window.electronAPI.onSessionExpired((data) => {
+        console.log('Session expired event received', data);
+        // The main process handles re-login attempts
     });
 
     // Listen for silent login attempts
-    window.electronAPI.onSilentLoginStarted(() => {
-        console.log('Silent login started...');
+    window.electronAPI.onSilentLoginStarted((data) => {
+        console.log('Silent login started...', data);
         showAutoLoginAttempt();
     });
 
     // Listen for silent login failures (falls back to visible login)
-    window.electronAPI.onSilentLoginFailed(() => {
-        console.log('Silent login failed, manual login required');
+    window.electronAPI.onSilentLoginFailed((data) => {
+        console.log('Silent login failed, manual login required', data);
         showLoginRequired();
     });
 }
 
 // Fetch usage data from Claude API
 async function fetchUsageData() {
-    console.log('fetchUsageData called', { credentials });
+    const account = getActiveAccount();
 
-    if (!credentials.sessionKey || !credentials.organizationId) {
-        console.log('Missing credentials, showing login');
+    if (!account || !account.sessionKey || !account.organizationId) {
+        console.log('Missing credentials for active account, showing login');
         showLoginRequired();
         return;
     }
 
     try {
-        console.log('Calling electronAPI.fetchUsageData...');
-        const data = await window.electronAPI.fetchUsageData();
+        console.log('Calling electronAPI.fetchUsageDataForAccount...', account.id);
+        const data = await window.electronAPI.fetchUsageDataForAccount(account.id);
         console.log('Received usage data:', data);
+
+        // Cache the data
+        usageDataByAccount[account.id] = data;
+
         updateUI(data);
     } catch (error) {
         console.error('Error fetching usage data:', error);
         if (error.message.includes('SessionExpired') || error.message.includes('Unauthorized')) {
             // Session expired - silent login attempt is in progress
             // Show auto-login UI while waiting
-            credentials = { sessionKey: null, organizationId: null };
             showAutoLoginAttempt();
         } else {
             showError('Failed to fetch usage data');
@@ -299,8 +524,6 @@ function hasNoUsage(data) {
 
 // Update UI with usage data
 function updateUI(data) {
-    latestUsageData = data;
-
     // Check if there's no usage data
     if (hasNoUsage(data)) {
         showNoUsage();
@@ -308,7 +531,7 @@ function updateUI(data) {
     }
 
     showMainContent();
-    refreshTimers();
+    refreshTimers(data);
     startCountdown();
 }
 
@@ -316,12 +539,15 @@ function updateUI(data) {
 let sessionResetTriggered = false;
 let weeklyResetTriggered = false;
 
-function refreshTimers() {
-    if (!latestUsageData) return;
+function refreshTimers(data) {
+    if (!data) {
+        data = usageDataByAccount[activeAccountId];
+    }
+    if (!data) return;
 
     // Session data
-    const sessionUtilization = latestUsageData.five_hour?.utilization || 0;
-    const sessionResetsAt = latestUsageData.five_hour?.resets_at;
+    const sessionUtilization = data.five_hour?.utilization || 0;
+    const sessionResetsAt = data.five_hour?.resets_at;
 
     // Check if session timer has expired and we need to refresh
     if (sessionResetsAt) {
@@ -352,8 +578,8 @@ function refreshTimers() {
     );
 
     // Weekly data
-    const weeklyUtilization = latestUsageData.seven_day?.utilization || 0;
-    const weeklyResetsAt = latestUsageData.seven_day?.resets_at;
+    const weeklyUtilization = data.seven_day?.utilization || 0;
+    const weeklyResetsAt = data.seven_day?.resets_at;
 
     // Check if weekly timer has expired and we need to refresh
     if (weeklyResetsAt) {
@@ -473,6 +699,7 @@ function showLoading() {
     elements.noUsageContainer.style.display = 'none';
     elements.autoLoginContainer.style.display = 'none';
     elements.mainContent.style.display = 'none';
+    if (elements.accountTabsContainer) elements.accountTabsContainer.style.display = 'none';
 }
 
 function showLoginRequired() {
@@ -481,6 +708,7 @@ function showLoginRequired() {
     elements.noUsageContainer.style.display = 'none';
     elements.autoLoginContainer.style.display = 'none';
     elements.mainContent.style.display = 'none';
+    if (elements.accountTabsContainer) elements.accountTabsContainer.style.display = 'none';
     stopAutoUpdate();
 }
 
@@ -490,6 +718,7 @@ function showNoUsage() {
     elements.noUsageContainer.style.display = 'flex';
     elements.autoLoginContainer.style.display = 'none';
     elements.mainContent.style.display = 'none';
+    if (elements.accountTabsContainer) elements.accountTabsContainer.style.display = 'flex';
 }
 
 function showAutoLoginAttempt() {
@@ -498,6 +727,7 @@ function showAutoLoginAttempt() {
     elements.noUsageContainer.style.display = 'none';
     elements.autoLoginContainer.style.display = 'flex';
     elements.mainContent.style.display = 'none';
+    if (elements.accountTabsContainer) elements.accountTabsContainer.style.display = 'none';
     stopAutoUpdate();
 }
 
@@ -507,6 +737,7 @@ function showMainContent() {
     elements.noUsageContainer.style.display = 'none';
     elements.autoLoginContainer.style.display = 'none';
     elements.mainContent.style.display = 'block';
+    if (elements.accountTabsContainer) elements.accountTabsContainer.style.display = 'flex';
 }
 
 function showError(message) {
@@ -539,7 +770,7 @@ style.textContent = `
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
-    
+
     .refresh-btn.spinning svg {
         animation: spin-refresh 1s linear;
     }

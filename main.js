@@ -11,15 +11,51 @@ let mainWindow = null;
 let loginWindow = null;
 let silentLoginWindow = null;
 let tray = null;
+let pendingLoginAccountId = null; // Track which account is being logged in
 
 // Window configuration
 const WIDGET_WIDTH = 480;
-const WIDGET_HEIGHT = 140;
-const WIDGET_HEIGHT_WITH_TIMER = 160;
-const COMPACT_WIDTH = 360;
-const COMPACT_HEIGHT = 76;
+const WIDGET_HEIGHT = 170; // Increased to accommodate account tabs
+const WIDGET_HEIGHT_WITH_TIMER = 190;
+const COMPACT_WIDTH = 370;
+const COMPACT_HEIGHT = 110; // Increased for account tabs
 const SETTINGS_WIDTH = 480;
-const SETTINGS_HEIGHT = 360;
+const SETTINGS_HEIGHT = 500; // Increased for accounts section
+
+// Generate unique ID for accounts
+function generateAccountId() {
+  return 'acc_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+}
+
+// Migrate from old single-account format to new multi-account format
+function migrateToMultiAccount() {
+  const existingSessionKey = store.get('sessionKey');
+  const existingOrgId = store.get('organizationId');
+  const existingAccounts = store.get('accounts');
+
+  // Already migrated
+  if (existingAccounts) {
+    return;
+  }
+
+  // Has old format credentials - migrate
+  if (existingSessionKey && existingOrgId) {
+    const accounts = [{
+      id: generateAccountId(),
+      label: 'Account 1',
+      sessionKey: existingSessionKey,
+      organizationId: existingOrgId
+    }];
+    store.set('accounts', accounts);
+    store.set('activeAccountId', accounts[0].id);
+    store.delete('sessionKey');
+    store.delete('organizationId');
+    console.log('[Main] Migrated single account to multi-account format');
+  } else {
+    // No credentials at all - initialize empty accounts array
+    store.set('accounts', []);
+  }
+}
 
 function createMainWindow() {
   // Load saved position and compact mode setting
@@ -81,7 +117,18 @@ function createMainWindow() {
   }
 }
 
-function createLoginWindow() {
+// accountId: optional - if provided, updates that account; if null, creates a new account
+function createLoginWindow(accountId = null) {
+  pendingLoginAccountId = accountId;
+
+  // Each account needs its own isolated session partition to prevent cookie collisions
+  // - Existing accounts: use persistent partition tied to account ID
+  // - New accounts: use a temporary partition for the login flow
+  const sessionPartition = accountId
+    ? `persist:account-${accountId}`
+    : `persist:newaccount-${Date.now()}`;
+  const loginSession = session.fromPartition(sessionPartition);
+
   loginWindow = new BrowserWindow({
     width: 800,
     height: 700,
@@ -89,7 +136,8 @@ function createLoginWindow() {
     modal: true,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      session: loginSession
     }
   });
 
@@ -103,7 +151,8 @@ function createLoginWindow() {
     if (hasLoggedIn || !loginWindow) return;
 
     try {
-      const cookies = await session.defaultSession.cookies.get({
+      // Use the login window's session to get cookies
+      const cookies = await loginSession.cookies.get({
         url: 'https://claude.ai',
         name: 'sessionKey'
       });
@@ -137,17 +186,73 @@ function createLoginWindow() {
             loginCheckInterval = null;
           }
 
-          console.log('Sending login-success to main window...');
-          store.set('sessionKey', sessionKey);
-          store.set('organizationId', orgId);
+          console.log('Saving account credentials...');
 
-          if (mainWindow) {
-            mainWindow.webContents.send('login-success', { sessionKey, organizationId: orgId });
-            console.log('login-success sent');
+          let accounts = store.get('accounts') || [];
+          let account;
+
+          if (pendingLoginAccountId) {
+            // Update existing account
+            const accountIndex = accounts.findIndex(a => a.id === pendingLoginAccountId);
+            if (accountIndex >= 0) {
+              accounts[accountIndex].sessionKey = sessionKey;
+              accounts[accountIndex].organizationId = orgId;
+              account = accounts[accountIndex];
+              console.log('Updated existing account:', account.label);
+            }
           } else {
-            console.error('mainWindow is null, cannot send login-success');
+            // Create new account
+            const newAccountNumber = accounts.length + 1;
+            account = {
+              id: generateAccountId(),
+              label: `Account ${newAccountNumber}`,
+              sessionKey: sessionKey,
+              organizationId: orgId
+            };
+            accounts.push(account);
+            console.log('Created new account:', account.label);
+
+            // Copy cookies from temp partition to account's permanent partition
+            // This enables silent re-login to work for newly created accounts
+            const permanentPartition = session.fromPartition(`persist:account-${account.id}`);
+            try {
+              const allCookies = await loginSession.cookies.get({ url: 'https://claude.ai' });
+              for (const cookie of allCookies) {
+                await permanentPartition.cookies.set({
+                  url: 'https://claude.ai',
+                  name: cookie.name,
+                  value: cookie.value,
+                  domain: cookie.domain,
+                  path: cookie.path,
+                  secure: cookie.secure,
+                  httpOnly: cookie.httpOnly,
+                  expirationDate: cookie.expirationDate
+                });
+              }
+              console.log('Copied cookies to permanent partition for account:', account.id);
+            } catch (cookieErr) {
+              console.error('Failed to copy cookies to permanent partition:', cookieErr);
+            }
           }
 
+          store.set('accounts', accounts);
+
+          // Set as active account if it's the first one or if we just created it
+          if (!pendingLoginAccountId || accounts.length === 1) {
+            store.set('activeAccountId', account.id);
+          }
+
+          if (mainWindow) {
+            mainWindow.webContents.send('account-login-success', {
+              account,
+              isNew: !pendingLoginAccountId
+            });
+            console.log('account-login-success sent');
+          } else {
+            console.error('mainWindow is null, cannot send account-login-success');
+          }
+
+          pendingLoginAccountId = null;
           loginWindow.close();
         }
       }
@@ -189,18 +294,25 @@ function createLoginWindow() {
       clearInterval(loginCheckInterval);
       loginCheckInterval = null;
     }
+    pendingLoginAccountId = null;
     loginWindow = null;
   });
 }
 
-// Attempt silent login in a hidden browser window
-async function attemptSilentLogin() {
-  console.log('[Main] Attempting silent login...');
+// Attempt silent login in a hidden browser window for a specific account
+async function attemptSilentLogin(accountId = null) {
+  console.log('[Main] Attempting silent login for account:', accountId);
 
   // Notify renderer that we're trying to auto-login
   if (mainWindow) {
-    mainWindow.webContents.send('silent-login-started');
+    mainWindow.webContents.send('silent-login-started', { accountId });
   }
+
+  // Use account-specific session partition to prevent cookie collisions between accounts
+  const sessionPartition = accountId
+    ? `persist:account-${accountId}`
+    : `persist:silent-${Date.now()}`;
+  const silentSession = session.fromPartition(sessionPartition);
 
   return new Promise((resolve) => {
     silentLoginWindow = new BrowserWindow({
@@ -209,7 +321,8 @@ async function attemptSilentLogin() {
       show: false, // Hidden window
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        session: silentSession
       }
     });
 
@@ -224,7 +337,7 @@ async function attemptSilentLogin() {
       if (hasLoggedIn || !silentLoginWindow) return;
 
       try {
-        const cookies = await session.defaultSession.cookies.get({
+        const cookies = await silentSession.cookies.get({
           url: 'https://claude.ai',
           name: 'sessionKey'
         });
@@ -259,11 +372,27 @@ async function attemptSilentLogin() {
             }
 
             console.log('[Main] Silent login successful!');
-            store.set('sessionKey', sessionKey);
-            store.set('organizationId', orgId);
+
+            // Update the specific account
+            let accounts = store.get('accounts') || [];
+            let account;
+
+            if (accountId) {
+              const accountIndex = accounts.findIndex(a => a.id === accountId);
+              if (accountIndex >= 0) {
+                accounts[accountIndex].sessionKey = sessionKey;
+                accounts[accountIndex].organizationId = orgId;
+                account = accounts[accountIndex];
+                store.set('accounts', accounts);
+              }
+            }
 
             if (mainWindow) {
-              mainWindow.webContents.send('login-success', { sessionKey, organizationId: orgId });
+              mainWindow.webContents.send('account-login-success', {
+                account: account || { sessionKey, organizationId: orgId },
+                isNew: false,
+                isSilent: true
+              });
             }
 
             silentLoginWindow.close();
@@ -317,11 +446,11 @@ async function attemptSilentLogin() {
 
         // Notify renderer that silent login failed
         if (mainWindow) {
-          mainWindow.webContents.send('silent-login-failed');
+          mainWindow.webContents.send('silent-login-failed', { accountId });
         }
 
-        // Open visible login window
-        createLoginWindow();
+        // Open visible login window for the specific account
+        createLoginWindow(accountId);
         resolve(false);
       }
     }, SILENT_LOGIN_TIMEOUT);
@@ -361,17 +490,9 @@ function createTray() {
       },
       { type: 'separator' },
       {
-        label: 'Settings',
+        label: 'Add Account',
         click: () => {
-          // TODO: Open settings window
-        }
-      },
-      {
-        label: 'Re-login',
-        click: () => {
-          store.delete('sessionKey');
-          store.delete('organizationId');
-          createLoginWindow();
+          createLoginWindow(null);
         }
       },
       { type: 'separator' },
@@ -397,30 +518,103 @@ function createTray() {
 }
 
 // IPC Handlers
+
+// Multi-account handlers
+ipcMain.handle('get-accounts', () => {
+  return store.get('accounts') || [];
+});
+
+ipcMain.handle('get-active-account-id', () => {
+  return store.get('activeAccountId');
+});
+
+ipcMain.handle('set-active-account-id', (event, accountId) => {
+  store.set('activeAccountId', accountId);
+  return true;
+});
+
+ipcMain.handle('add-account', () => {
+  // Opens login window to add a new account
+  createLoginWindow(null);
+  return true;
+});
+
+ipcMain.handle('update-account-label', (event, { id, label }) => {
+  const accounts = store.get('accounts') || [];
+  const accountIndex = accounts.findIndex(a => a.id === id);
+  if (accountIndex >= 0) {
+    accounts[accountIndex].label = label;
+    store.set('accounts', accounts);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('remove-account', async (event, id) => {
+  let accounts = store.get('accounts') || [];
+  const accountIndex = accounts.findIndex(a => a.id === id);
+
+  if (accountIndex >= 0) {
+    accounts.splice(accountIndex, 1);
+    store.set('accounts', accounts);
+
+    // If we removed the active account, set a new active account
+    const activeAccountId = store.get('activeAccountId');
+    if (activeAccountId === id) {
+      if (accounts.length > 0) {
+        store.set('activeAccountId', accounts[0].id);
+      } else {
+        store.delete('activeAccountId');
+      }
+    }
+
+    return { success: true, newActiveId: accounts.length > 0 ? store.get('activeAccountId') : null };
+  }
+  return { success: false };
+});
+
+ipcMain.handle('relogin-account', (event, accountId) => {
+  createLoginWindow(accountId);
+  return true;
+});
+
+// Legacy handlers (kept for compatibility during transition)
 ipcMain.handle('get-credentials', () => {
-  return {
-    sessionKey: store.get('sessionKey'),
-    organizationId: store.get('organizationId')
-  };
+  // Return first account credentials for backward compatibility
+  const accounts = store.get('accounts') || [];
+  if (accounts.length > 0) {
+    const activeId = store.get('activeAccountId');
+    const account = accounts.find(a => a.id === activeId) || accounts[0];
+    return {
+      sessionKey: account.sessionKey,
+      organizationId: account.organizationId
+    };
+  }
+  return { sessionKey: null, organizationId: null };
 });
 
 ipcMain.handle('save-credentials', (event, { sessionKey, organizationId }) => {
-  store.set('sessionKey', sessionKey);
-  if (organizationId) {
-    store.set('organizationId', organizationId);
+  // Update active account credentials
+  const accounts = store.get('accounts') || [];
+  const activeId = store.get('activeAccountId');
+  const accountIndex = accounts.findIndex(a => a.id === activeId);
+
+  if (accountIndex >= 0) {
+    accounts[accountIndex].sessionKey = sessionKey;
+    accounts[accountIndex].organizationId = organizationId;
+    store.set('accounts', accounts);
   }
   return true;
 });
 
 ipcMain.handle('delete-credentials', async () => {
-  store.delete('sessionKey');
-  store.delete('organizationId');
+  // Remove all accounts and clear cookies
+  store.set('accounts', []);
+  store.delete('activeAccountId');
 
   // Clear the session cookie to ensure actual logout
   try {
     await session.defaultSession.cookies.remove('https://claude.ai', 'sessionKey');
-    // Also try checking for other auth cookies or clear storage if needed
-    // await session.defaultSession.clearStorageData({ storages: ['cookies'] });
   } catch (error) {
     console.error('Failed to clear cookies:', error);
   }
@@ -428,8 +622,8 @@ ipcMain.handle('delete-credentials', async () => {
   return true;
 });
 
-ipcMain.on('open-login', () => {
-  createLoginWindow();
+ipcMain.on('open-login', (event, accountId) => {
+  createLoginWindow(accountId || null);
 });
 
 ipcMain.on('minimize-window', () => {
@@ -521,10 +715,83 @@ ipcMain.handle('expand-for-settings', (event, expand) => {
   return true;
 });
 
+// Fetch usage data for a specific account by ID
+ipcMain.handle('fetch-usage-data-for-account', async (event, accountId) => {
+  console.log('[Main] fetch-usage-data-for-account called for:', accountId);
+
+  const accounts = store.get('accounts') || [];
+  const account = accounts.find(a => a.id === accountId);
+
+  if (!account) {
+    throw new Error('Account not found');
+  }
+
+  const { sessionKey, organizationId } = account;
+
+  console.log('[Main] Account credentials:', {
+    accountId,
+    label: account.label,
+    hasSessionKey: !!sessionKey,
+    organizationId
+  });
+
+  if (!sessionKey || !organizationId) {
+    throw new Error('Missing credentials for account');
+  }
+
+  try {
+    console.log('[Main] Making API request to:', `https://claude.ai/api/organizations/${organizationId}/usage`);
+    const response = await axios.get(
+      `https://claude.ai/api/organizations/${organizationId}/usage`,
+      {
+        headers: {
+          'Cookie': `sessionKey=${sessionKey}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    );
+    console.log('[Main] API request successful, status:', response.status);
+    return response.data;
+  } catch (error) {
+    console.error('[Main] API request failed:', error.message);
+    if (error.response) {
+      console.error('[Main] Response status:', error.response.status);
+      if (error.response.status === 401 || error.response.status === 403) {
+        // Session expired for this account - attempt silent re-login
+        console.log('[Main] Session expired for account:', account.label);
+
+        // Clear this account's credentials
+        const updatedAccounts = store.get('accounts') || [];
+        const accountIndex = updatedAccounts.findIndex(a => a.id === accountId);
+        if (accountIndex >= 0) {
+          updatedAccounts[accountIndex].sessionKey = null;
+          updatedAccounts[accountIndex].organizationId = null;
+          store.set('accounts', updatedAccounts);
+        }
+
+        // Attempt silent login for this specific account
+        attemptSilentLogin(accountId);
+
+        throw new Error('SessionExpired:' + accountId);
+      }
+    }
+    throw error;
+  }
+});
+
+// Legacy fetch-usage-data (uses active account)
 ipcMain.handle('fetch-usage-data', async () => {
   console.log('[Main] fetch-usage-data handler called');
-  const sessionKey = store.get('sessionKey');
-  const organizationId = store.get('organizationId');
+
+  const accounts = store.get('accounts') || [];
+  const activeId = store.get('activeAccountId');
+  const account = accounts.find(a => a.id === activeId) || accounts[0];
+
+  if (!account) {
+    throw new Error('No accounts configured');
+  }
+
+  const { sessionKey, organizationId } = account;
 
   console.log('[Main] Credentials:', {
     hasSessionKey: !!sessionKey,
@@ -555,14 +822,18 @@ ipcMain.handle('fetch-usage-data', async () => {
       if (error.response.status === 401 || error.response.status === 403) {
         // Session expired - attempt silent re-login
         console.log('[Main] Session expired, attempting silent re-login...');
-        store.delete('sessionKey');
-        store.delete('organizationId');
 
-        // Don't clear cookies - we need them for silent login to work with OAuth
-        // The silent login will use existing Google/OAuth session if available
+        // Clear this account's credentials
+        const updatedAccounts = store.get('accounts') || [];
+        const accountIndex = updatedAccounts.findIndex(a => a.id === account.id);
+        if (accountIndex >= 0) {
+          updatedAccounts[accountIndex].sessionKey = null;
+          updatedAccounts[accountIndex].organizationId = null;
+          store.set('accounts', updatedAccounts);
+        }
 
         // Attempt silent login (will notify renderer appropriately)
-        attemptSilentLogin();
+        attemptSilentLogin(account.id);
 
         throw new Error('SessionExpired');
       }
@@ -573,6 +844,9 @@ ipcMain.handle('fetch-usage-data', async () => {
 
 // App lifecycle
 app.whenReady().then(() => {
+  // Migrate from old single-account format if needed
+  migrateToMultiAccount();
+
   createMainWindow();
   createTray();
 

@@ -709,7 +709,7 @@ body.compact-mode .title-bar {
 }
 
 body.compact-mode .content {
-    padding: 24px 12px 8px 12px;
+    padding: 8px 12px 8px 12px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -880,5 +880,193 @@ body.compact-mode .auto-login-content .spinner {
 
 /* Settings overlay in compact mode - needs to expand window temporarily */
 body.compact-mode .settings-overlay {
+    -webkit-app-region: no-drag;
+}
+
+/* Account Tabs */
+.account-tabs-container {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-app-region: no-drag;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.account-tabs-container::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+}
+
+.account-tab {
+    padding: 4px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: #a0a0a0;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.account-tab:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+}
+
+.account-tab.active {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    border-color: #8b5cf6;
+    color: #ffffff;
+}
+
+.account-tab.add-tab {
+    padding: 4px 10px;
+    font-size: 14px;
+    font-weight: bold;
+    min-width: 28px;
+    background: transparent;
+    border-style: dashed;
+}
+
+.account-tab.add-tab:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: #8b5cf6;
+    color: #8b5cf6;
+}
+
+/* Accounts Section in Settings */
+.settings-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+}
+
+.settings-section-header {
+    color: #a0a0a0;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.accounts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.account-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    gap: 8px;
+}
+
+.account-label-display {
+    color: #e0e0e0;
+    font-size: 12px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.account-label-input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(139, 92, 246, 0.5);
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 12px;
+    padding: 4px 8px;
+    outline: none;
+}
+
+.account-label-input:focus {
+    border-color: #8b5cf6;
+}
+
+.account-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.account-edit-btn,
+.account-remove-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    font-size: 12px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.account-edit-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+}
+
+.account-remove-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.add-account-btn {
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: 1px dashed rgba(139, 92, 246, 0.4);
+    border-radius: 6px;
+    color: #8b5cf6;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.add-account-btn:hover {
+    background: rgba(139, 92, 246, 0.1);
+    border-color: #8b5cf6;
+}
+
+/* Compact mode account tabs */
+body.compact-mode .account-tabs-container {
+    padding: 23px 8px 2px 4px; /* Top padding to clear compact controls */
+    gap: 2px;
+    background: transparent;
+    border-bottom: none;
+}
+
+body.compact-mode .account-tab {
+    padding: 2px 8px;
+    font-size: 9px;
+    max-width: 80px;
+}
+
+body.compact-mode .account-tab.add-tab {
+    padding: 2px 6px;
+    font-size: 11px;
+    min-width: 20px;
+}
+
+/* Make account tabs non-draggable in compact mode */
+body.compact-mode .account-tabs-container,
+body.compact-mode .account-tab {
     -webkit-app-region: no-drag;
 }

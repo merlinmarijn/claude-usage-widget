@@ -44,6 +44,11 @@
                 </div>
             </div>
 
+            <!-- Account Tabs -->
+            <div class="account-tabs-container" id="accountTabsContainer" style="display: none;">
+                <!-- Tabs will be dynamically rendered by app.js -->
+            </div>
+
             <!-- Loading State -->
             <div class="loading-container" id="loadingContainer">
                 <div class="spinner"></div>
@@ -154,6 +159,15 @@
                         If you find this useful, buy me a coffee!
                     </button>
 
+                    <!-- Accounts Section -->
+                    <div class="settings-section">
+                        <div class="settings-section-header">Accounts</div>
+                        <div class="accounts-list" id="accountsList">
+                            <!-- Account items will be dynamically rendered by app.js -->
+                        </div>
+                        <button class="add-account-btn" id="addAccountBtn">+ Add Account</button>
+                    </div>
+
                     <div class="settings-option">
                         <label class="toggle-label" for="compactModeToggle">
                             <span>Compact Mode</span>
@@ -191,7 +205,7 @@
                     </div>
 
                     <div class="settings-actions">
-                        <button class="logout-btn" id="logoutBtn">Log Out</button>
+                        <button class="logout-btn" id="logoutBtn">Log Out All</button>
                     </div>
                 </div>
             </div>
