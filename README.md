@@ -2,18 +2,53 @@
 
 A beautiful, standalone Windows desktop widget that displays your Claude.ai usage statistics in real-time.
 
-![Claude Usage Widget](assets/claude-usage-screenshot.jpg)
+> **Note:** This is a fork of [SlavomirDurej/claude-usage-widget](https://github.com/SlavomirDurej/claude-usage-widget) with significant UX improvements and a full settings panel. Changes were developed with AI assistance (Claude).
+
+---
+
+## What's New in This Fork
+
+![Claude Usage Widget - Main](assets/screenshot-main.png)
+
+### Settings Panel
+A full settings overlay with persistent preferences via `electron-store`.
+
+![Claude Usage Widget - Settings](assets/screenshot-settings.png)
+
+- ⚙️ **Launch at startup** — Auto-start with Windows
+- 🖥️ **Always on top** — Now user-controlled (was hardcoded on)
+- 📌 **Hide from taskbar** — Tray-only mode
+- 🎨 **Theme selector** — Dark / Light / System
+- ⚠️ **Warning thresholds** — Configurable amber and red levels for usage bars
+
+### Improved Main Widget Layout
+- **5-column grid** with labeled headers: Session Used / Elapsed / Resets In / Resets At
+- **Elapsed** column shows a circular timer of how far through the current window you are
+- **Resets In** shows the countdown separately so it's not confused with elapsed time
+- **Resets At** shows the actual local clock time (session) or date (weekly reset)
+- **Fresh-user state** shows "Not started" instead of ambiguous dashes when no session is active
+
+### Quality of Life
+- 🔵 **Rounded corners** matching Windows 11 system window style
+- 🖼️ **Tray icon** fixed to use the app logo instead of the default Electron robot icon
+
+![Claude Usage Widget - Tray](assets/screenshot-tray.png)
+
+---
+
+## Original README
 
 ## Features
 
 - 🎯 **Real-time Usage Tracking** - Monitor both session and weekly usage limits
-- 📊 **Visual Progress Bars** - Clean, gradient progress indicators
-- ⏱️ **Countdown Timers** - Circular timers showing time until reset
+- 📊 **Visual Progress Bars** - Clean, gradient progress indicators with configurable warning thresholds
+- ⏱️ **Countdown Timers** - Circular timers showing time elapsed in current window
 - 🔄 **Auto-refresh** - Updates every 5 minutes automatically
-- 🎨 **Modern UI** - Sleek, draggable widget with dark theme
+- 🎨 **Modern UI** - Sleek, draggable widget with dark theme and rounded corners
 - 🔒 **Secure** - Encrypted credential storage
-- 📍 **Always on Top** - Stays visible across all workspaces
+- 📍 **Always on Top** - User-controlled, stays visible across all workspaces
 - 💾 **System Tray** - Minimizes to tray for easy access
+- ⚙️ **Settings Panel** - Persistent preferences for startup, theme, tray, and thresholds
 
 ## Installation
 
@@ -70,31 +105,32 @@ Right-click the tray icon for:
 - Show/Hide widget
 - Refresh usage data
 - Re-login (if session expires)
-- Settings (coming soon)
+- Settings
 - Exit application
 
 ## Understanding the Display
 
 ### Current Session
-- **Progress Bar** - Shows usage from 0-100%
-- **Timer** - Time remaining until 5-hour session resets
+- **Session Used** - Progress bar showing usage from 0-100%
+- **Elapsed** - Circular timer showing how far through the 5-hour window you are
+- **Resets In** - Countdown until the session window resets
+- **Resets At** - Actual local clock time when the session resets
 - **Color Coding**:
-  - Purple: Normal usage (0-74%)
-  - Orange: High usage (75-89%)
-  - Red: Critical usage (90-100%)
+  - Purple: Normal usage (below warning threshold, default 75%)
+  - Orange: High usage (above warning threshold)
+  - Red: Critical usage (above danger threshold, default 90%)
 
 ### Weekly Limit
-- **Progress Bar** - Shows weekly usage from 0-100%
-- **Timer** - Time remaining until weekly reset (Wednesdays 7:00 AM)
+- **Session Used** - Progress bar showing weekly usage from 0-100%
+- **Elapsed** - Circular timer showing how far through the 7-day window you are
+- **Resets In** - Countdown until weekly reset
+- **Resets At** - Date of weekly reset
 - **Same color coding** as session usage
 
 ## Configuration
 
 ### Auto-start on Windows Boot
-
-1. Press `Win + R`
-2. Type `shell:startup` and press Enter
-3. Create a shortcut to the widget executable in this folder
+Enable the **Launch at startup** toggle in the Settings panel (⚙️ icon in the title bar).
 
 ### Custom Refresh Interval
 
@@ -133,6 +169,18 @@ npm install
 - No data is sent to any third-party servers
 - The widget only communicates with Claude.ai official API
 - Session cookies are stored using Electron's secure storage
+- **Logout** completely removes the session key from encrypted storage, clears all Claude.ai cookies, and wipes Electron session storage (localStorage, sessionStorage, cacheStorage) so nothing lingers on shared machines
+
+### Session Key Storage Details
+
+The `sessionKey` (a bearer token for Claude.ai) is stored in two places:
+
+| Location | Purpose | Cleared on logout? |
+|---|---|---|
+| `%APPDATA%/claude-usage-widget/config.json` (encrypted via `electron-store`) | Persists credentials between app restarts | Yes |
+| Electron in-memory session cookie (`.claude.ai` domain, `secure`, `httpOnly`) | Used by hidden BrowserWindow for API requests | Yes |
+
+The encryption key is embedded in the application. This protects against casual file inspection but not against a determined attacker with access to the source code. For shared machines, always log out when finished.
 
 ## Technical Details
 
@@ -152,14 +200,25 @@ https://claude.ai/api/organizations/{org_id}/usage
 %APPDATA%/claude-usage-widget/config.json (encrypted)
 ```
 
+**Debug Mode:**
+
+To enable verbose logging, run with the `--debug` flag or set the `DEBUG_LOG=1` environment variable:
+```bash
+# Via flag
+electron . --debug
+
+# Via env var
+DEBUG_LOG=1 npm start
+```
+
 ## Roadmap
 
 - [ ] macOS support
 - [ ] Linux support
-- [ ] Custom themes
+- [x] Custom themes
 - [ ] Notification alerts at usage thresholds
 - [x] Remember window position
-- [ ] Settings panel
+- [x] Settings panel
 - [ ] Usage history graphs
 - [ ] Multiple account support
 - [ ] Keyboard shortcuts

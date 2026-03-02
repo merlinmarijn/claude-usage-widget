@@ -1,13 +1,14 @@
 {
   "name": "claude-usage-widget",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Desktop widget for Claude.ai usage monitoring",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
-    "dev": "cross-env NODE_ENV=development electron ."
+    "dev": "cross-env NODE_ENV=development electron .",
+    "build:mac": "electron-builder --mac"
   },
   "keywords": [
     "claude",
@@ -17,23 +18,30 @@
   ],
   "author": "Your Name",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "cross-env": "^7.0.3"
+    "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "electron-store": "^8.1.0",
-    "axios": "^1.6.2"
+    "electron-store": "^8.1.0"
   },
   "build": {
     "appId": "com.claudeusage.widget",
     "productName": "Claude Usage Widget",
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ],
       "icon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -46,6 +54,21 @@
       "!**/*.ts",
       "!*.md"
     ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.dmg"
+    },
     "asarUnpack": [
       "node_modules/conf/**"
     ]

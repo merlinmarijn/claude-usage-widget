@@ -50,19 +50,46 @@
                 <p>Loading usage data...</p>
             </div>
 
-            <!-- Login Required State -->
+            <!-- Login -->
             <div class="login-container" id="loginContainer" style="display: none;">
                 <div class="login-content">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                        <polyline points="10 17 15 12 10 7" />
-                        <line x1="15" y1="12" x2="3" y2="12" />
-                    </svg>
-                    <div class="login-text-group">
-                        <h3>Login Required</h3>
-                        <p>Log in to view usage stats</p>
+                    <div class="login-step1" id="loginStep1">
+                        <div class="step-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                                <polyline points="10 17 15 12 10 7" />
+                                <line x1="15" y1="12" x2="3" y2="12" />
+                            </svg>
+                        </div>
+                        <div class="step-text">
+                            <h3>Connect to Claude.ai</h3>
+                            <p>Log in to your Claude account</p>
+                            <p class="step-hint">If auto-login doesn't work, use Manual to paste your session key — Claude.ai may block embedded browsers.</p>
+                            <p class="step-error" id="autoDetectError"></p>
+                        </div>
+                        <button class="auto-detect-btn" id="autoDetectBtn">Log in</button>
+                        <button class="next-step-btn" id="nextStepBtn">Manual →</button>
                     </div>
-                    <button class="login-btn" id="loginBtn">Log In</button>
+
+                    <div class="login-step2" id="loginStep2" style="display: none;">
+                        <div class="session-key-form">
+                            <div class="session-key-header">
+                                <h3>Paste your Session Key</h3>
+                                <p>
+                                    <a href="#" id="openBrowserLink" class="open-browser-link">Open claude.ai</a>
+                                    → <code>F12</code> → Application → Cookies → <code>sessionKey</code>
+                                </p>
+                            </div>
+                            <div class="session-key-input-row">
+                                <input type="password" id="sessionKeyInput" placeholder="sk-ant-sid01-..." spellcheck="false" autocomplete="off">
+                                <button class="connect-btn" id="connectBtn">Connect</button>
+                            </div>
+                            <div class="session-key-footer">
+                                <p class="session-key-error" id="sessionKeyError"></p>
+                                <button class="back-step-btn" id="backStepBtn">← Back</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -79,51 +106,68 @@
                 </div>
             </div>
 
-            <!-- Auto-Login Attempt State -->
-            <div class="auto-login-container" id="autoLoginContainer" style="display: none;">
-                <div class="auto-login-content">
-                    <div class="spinner"></div>
-                    <div class="auto-login-text-group">
-                        <h3>Trying to auto-login...</h3>
-                        <p>Please wait while we reconnect</p>
-                    </div>
-                </div>
-            </div>
-
             <!-- Main Content -->
             <div class="content" id="mainContent" style="display: none;">
+
+                <!-- Column Headers -->
+                <div class="usage-headers">
+                    <span></span>
+                    <span class="col-header col-header-center">Session Used</span>
+                    <span class="col-header col-header-center">Elapsed</span>
+                    <span class="col-header col-header-center">Resets In</span>
+                    <span class="col-header col-header-center">Resets At</span>
+                </div>
+
                 <!-- Session Usage -->
                 <div class="usage-section">
                     <span class="usage-label">Current Session</span>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="sessionProgress" style="width: 0%"></div>
+                    <div class="usage-bar-group">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="sessionProgress" style="width: 0%"></div>
+                        </div>
+                        <span class="usage-percentage" id="sessionPercentage">0%</span>
                     </div>
-                    <span class="usage-percentage" id="sessionPercentage">0%</span>
-                    <div class="timer-container">
-                        <div class="timer-text" id="sessionTimeText">--:--</div>
+                    <div class="usage-elapsed-group">
                         <svg class="mini-timer" width="24" height="24" viewBox="0 0 24 24">
                             <circle class="timer-bg" cx="12" cy="12" r="10" />
                             <circle class="timer-progress" id="sessionTimer" cx="12" cy="12" r="10"
                                 style="stroke-dasharray: 63; stroke-dashoffset: 63" />
                         </svg>
                     </div>
+                    <div class="timer-text" id="sessionTimeText">--:--</div>
+                    <div class="resets-at-text" id="sessionResetsAt">--</div>
                 </div>
 
                 <!-- Weekly Usage -->
                 <div class="usage-section">
                     <span class="usage-label">Weekly Limit</span>
-                    <div class="progress-bar">
-                        <div class="progress-fill weekly" id="weeklyProgress" style="width: 0%"></div>
+                    <div class="usage-bar-group">
+                        <div class="progress-bar">
+                            <div class="progress-fill weekly" id="weeklyProgress" style="width: 0%"></div>
+                        </div>
+                        <span class="usage-percentage" id="weeklyPercentage">0%</span>
                     </div>
-                    <span class="usage-percentage" id="weeklyPercentage">0%</span>
-                    <div class="timer-container">
-                        <div class="timer-text" id="weeklyTimeText">--:--</div>
+                    <div class="usage-elapsed-group">
                         <svg class="mini-timer" width="24" height="24" viewBox="0 0 24 24">
                             <circle class="timer-bg" cx="12" cy="12" r="10" />
                             <circle class="timer-progress weekly" id="weeklyTimer" cx="12" cy="12" r="10"
                                 style="stroke-dasharray: 63; stroke-dashoffset: 63" />
                         </svg>
                     </div>
+                    <div class="timer-text" id="weeklyTimeText">--:--</div>
+                    <div class="resets-at-text" id="weeklyResetsAt">--</div>
+                </div>
+
+                <!-- Expand Toggle -->
+                <div class="expand-toggle" id="expandToggle">
+                    <svg class="expand-arrow" id="expandArrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                </div>
+
+                <!-- Expandable Details -->
+                <div class="expand-section" id="expandSection" style="display: none;">
+                    <div id="extraRows"></div>
                 </div>
 
                 <!-- Update Timer (for normal mode) -->
@@ -136,23 +180,14 @@
             <!-- Settings Overlay -->
             <div class="settings-overlay" id="settingsOverlay" style="display: none;">
                 <div class="settings-content">
-                    <button class="icon-close-settings-btn" id="closeSettingsBtn" title="Close">×</button>
-                    <p class="disclaimer">
-                        <strong>Disclaimer:</strong> Unofficial tool not affiliated with Anthropic. Use at your own
-                        discretion.
-                    </p>
+                    <div class="settings-header">
+                        <span class="settings-title">Settings</span>
+                        <button class="done-settings-btn" id="closeSettingsBtn" title="Done">Done</button>
+                    </div>
 
-                    <button class="coffee-btn" id="coffeeBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
-                            <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
-                            <line x1="6" y1="2" x2="6" y2="4" />
-                            <line x1="10" y1="2" x2="10" y2="4" />
-                            <line x1="14" y1="2" x2="14" y2="4" />
-                        </svg>
-                        If you find this useful, buy me a coffee!
-                    </button>
+                    <div class="settings-disclaimer">
+                        Unofficial tool — not affiliated with Anthropic.
+                    </div>
 
                     <div class="settings-option">
                         <label class="toggle-label" for="compactModeToggle">
@@ -190,8 +225,80 @@
                         </label>
                     </div>
 
-                    <div class="settings-actions">
+                    <div class="settings-rows">
+                        <!-- Row 1: two toggles -->
+                        <div class="settings-row-2col">
+                            <div class="settings-col">
+                                <span class="settings-row-label">Launch at startup</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="autoStartToggle">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-col">
+                                <span class="settings-row-label" id="trayLabel">Hide from taskbar</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="minimizeToTrayToggle">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: two toggles -->
+                        <div class="settings-row-2col">
+                            <div class="settings-col">
+                                <span class="settings-row-label">Always on top</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="alwaysOnTopToggle">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-col">
+                                <!-- placeholder for future toggle -->
+                            </div>
+                        </div>
+
+                        <!-- Row 3: theme -->
+                        <div class="settings-row">
+                            <span class="settings-row-label">Theme</span>
+                            <div class="theme-selector">
+                                <button class="theme-btn active" data-theme="dark">Dark</button>
+                                <button class="theme-btn" data-theme="light">Light</button>
+                                <button class="theme-btn" data-theme="system">System</button>
+                            </div>
+                        </div>
+
+                        <!-- Row 4: warning thresholds -->
+                        <div class="settings-row">
+                            <span class="settings-row-label">Warn at</span>
+                            <div class="threshold-group">
+                                <label class="threshold-label">
+                                    <span class="threshold-dot warning-dot"></span>
+                                    <input type="number" id="warnThreshold" class="threshold-input" min="1" max="99" value="75">
+                                    <span class="threshold-pct">%</span>
+                                </label>
+                                <label class="threshold-label">
+                                    <span class="threshold-dot danger-dot"></span>
+                                    <input type="number" id="dangerThreshold" class="threshold-input" min="1" max="99" value="90">
+                                    <span class="threshold-pct">%</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-footer">
                         <button class="logout-btn" id="logoutBtn">Log Out</button>
+                        <button class="coffee-btn" id="coffeeBtn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+                                <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+                                <line x1="6" y1="2" x2="6" y2="4" />
+                                <line x1="10" y1="2" x2="10" y2="4" />
+                                <line x1="14" y1="2" x2="14" y2="4" />
+                            </svg>
+                            Buy me a coffee
+                        </button>
                     </div>
                 </div>
             </div>
